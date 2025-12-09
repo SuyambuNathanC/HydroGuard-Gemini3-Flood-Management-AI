@@ -1,0 +1,5 @@
+{
+  "name": "HydroGuard AI: Smart Flood Management",
+  "description": "A real-time, AI-driven platform for urban flood management, combining sensor data ingestion, simulation, and strategic infrastructure planning powered by Gemini models.",
+  "requestFramePermissions": []
+}
