@@ -124,3 +124,15 @@ export interface ChatMessage {
   proposal?: InfraPlan;
   isSaved?: boolean;
 }
+
+// --- KNOWLEDGE BASE TYPES ---
+export interface CityDocument {
+  id: string;
+  name: string;
+  type: 'Policy' | 'Report' | 'SensorLog' | 'MapData';
+  uploadDate: string;
+  status: 'Analyzing' | 'Ready' | 'Error';
+  summary?: string;
+  keyFacts?: string[]; // Extracted RAG data
+  rawContent?: string; // Stored text for context injection
+}

@@ -1,17 +1,18 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { LayoutDashboard, CloudRain, MessageSquare, MapPin, Menu, Bell, HardHat, Map, Siren, ChevronDown, CheckCircle, Clock, ShieldAlert, X } from 'lucide-react';
+import { LayoutDashboard, CloudRain, MessageSquare, MapPin, Menu, Bell, HardHat, Map, Siren, ChevronDown, CheckCircle, Clock, ShieldAlert, X, Database } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Simulation from './components/Simulation';
 import AgentChat from './components/AgentChat';
 import InfraStrategist from './components/InfraStrategist';
 import FloodMap from './components/FloodMap';
 import DisasterRecovery from './components/DisasterRecovery';
+import KnowledgeBase from './components/KnowledgeBase';
 import { CITIES, INITIAL_RESERVOIRS, INITIAL_RIVERS, MOCK_ALERTS, MOCK_RECOVERY_TASKS, MOCK_RESPONSE_TEAMS } from './constants';
-import { SimulationState, Reservoir, River, Alert, CityProfile, RecoveryTask, ResponseTeam } from './types';
+import { SimulationState, Reservoir, River, Alert, CityProfile, RecoveryTask, ResponseTeam, CityDocument } from './types';
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'map' | 'simulation' | 'agents' | 'infra' | 'recovery'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'map' | 'simulation' | 'agents' | 'infra' | 'recovery' | 'knowledge'>('dashboard');
   
   // Set default to Chennai
   const [selectedCityId, setSelectedCityId] = useState<string>('chennai');
@@ -41,6 +42,9 @@ const App: React.FC = () => {
   const [recoveryTasks, setRecoveryTasks] = useState<RecoveryTask[]>(MOCK_RECOVERY_TASKS);
   const [responseTeams, setResponseTeams] = useState<ResponseTeam[]>(MOCK_RESPONSE_TEAMS);
   
+  // --- KNOWLEDGE BASE STATE (RAG Context) ---
+  const [documents, setDocuments] = useState<CityDocument[]>([]);
+
   // Notification Panel State
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [notificationTab, setNotificationTab] = useState<'alerts' | 'tasks'>('alerts');
@@ -252,6 +256,16 @@ const App: React.FC = () => {
             <HardHat className="w-5 h-5" />
             <span className="font-medium">Infra Strategist</span>
           </button>
+
+          <button
+            onClick={() => setActiveTab('knowledge')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+              activeTab === 'knowledge' ? 'bg-blue-600/10 text-blue-400 border border-blue-600/20' : 'text-slate-400 hover:bg-slate-800'
+            }`}
+          >
+            <Database className="w-5 h-5" />
+            <span className="font-medium">Knowledge Base</span>
+          </button>
         </nav>
 
         <div className="p-4 border-t border-slate-800">
@@ -312,6 +326,7 @@ const App: React.FC = () => {
               {activeTab === 'recovery' && 'Disaster Recovery Admin'}
               {activeTab === 'agents' && 'AI Command Center'}
               {activeTab === 'infra' && 'Infrastructure Strategy'}
+              {activeTab === 'knowledge' && 'City Knowledge Base'}
             </h2>
           </div>
           
@@ -470,12 +485,19 @@ const App: React.FC = () => {
               rivers={simulatedRivers}
               simulationState={activeSimulationState}
               cityProfile={currentCity}
+              knowledgeBase={documents}
             />
           )}
           {activeTab === 'infra' && (
             <InfraStrategist 
               cityProfile={currentCity}
               simulationState={activeSimulationState}
+            />
+          )}
+          {activeTab === 'knowledge' && (
+            <KnowledgeBase
+              documents={documents}
+              setDocuments={setDocuments}
             />
           )}
         </div>

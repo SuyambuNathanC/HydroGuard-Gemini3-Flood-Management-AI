@@ -1,19 +1,20 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { AgentRole, ChatMessage, SimulationState, Reservoir, River, CityProfile } from '../types';
+import { AgentRole, ChatMessage, SimulationState, Reservoir, River, CityProfile, CityDocument } from '../types';
 import { generateAgentResponse } from '../services/geminiService';
 import { 
   Send, Bot, User, Brain, AlertOctagon, Activity, Map, Radio, 
   CheckCircle, ThumbsUp, ThumbsDown, GitCompare, MoreHorizontal, MoreVertical,
   TrendingUp, FileText, ClipboardList, ShieldAlert, ArrowRight, TrendingDown, Minus,
-  Paperclip, Image as ImageIcon, File, X, Lightbulb, Users, MapPin, Share2, Video, Mic
+  Paperclip, Image as ImageIcon, File, X, Lightbulb, Users, MapPin, Share2, Video, Mic, Database
 } from 'lucide-react';
 
 interface AgentChatProps {
   reservoirs: Reservoir[];
   rivers: River[];
   simulationState: SimulationState;
-  cityProfile: CityProfile; // Added City Profile
+  cityProfile: CityProfile;
+  knowledgeBase: CityDocument[]; // Added KB Prop
 }
 
 // Comparison Data Interface
@@ -40,7 +41,7 @@ interface CriticalAlertData {
   action_items: string[];
 }
 
-const AgentChat: React.FC<AgentChatProps> = ({ reservoirs, rivers, simulationState, cityProfile }) => {
+const AgentChat: React.FC<AgentChatProps> = ({ reservoirs, rivers, simulationState, cityProfile, knowledgeBase }) => {
   const [activeRole, setActiveRole] = useState<AgentRole>(AgentRole.MONITOR);
   
   // State: Separate history for each agent
@@ -174,7 +175,8 @@ const AgentChat: React.FC<AgentChatProps> = ({ reservoirs, rivers, simulationSta
         simulation: simulationState,
         reservoirs: reservoirs,
         rivers: rivers,
-        city: cityProfile // Passed City Context
+        city: cityProfile, // Passed City Context
+        knowledgeBase: knowledgeBase // Passed Knowledge Base
       },
       isComparisonRequest,
       attachmentData,
@@ -468,6 +470,18 @@ const AgentChat: React.FC<AgentChatProps> = ({ reservoirs, rivers, simulationSta
             </div>
           </button>
         ))}
+
+        {/* Knowledge Base Status Indicator */}
+        <div className="mt-6 px-2">
+           <h3 className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-2">Connected Knowledge</h3>
+           <div className={`flex items-center gap-2 p-2 rounded-lg border ${knowledgeBase.filter(d => d.status === 'Ready').length > 0 ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-slate-800 border-slate-700'}`}>
+              <Database className={`w-4 h-4 ${knowledgeBase.filter(d => d.status === 'Ready').length > 0 ? 'text-emerald-400' : 'text-slate-500'}`} />
+              <div className="flex flex-col">
+                 <span className="text-xs text-white font-medium">{knowledgeBase.filter(d => d.status === 'Ready').length} Documents</span>
+                 <span className="text-[10px] text-slate-400">Available for RAG</span>
+              </div>
+           </div>
+        </div>
       </div>
 
       {/* Chat Area */}
@@ -684,7 +698,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ reservoirs, rivers, simulationSta
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              placeholder={`Ask ${activeRole} or describe the attached file...`}
+              placeholder={`Ask ${activeRole} about uploaded docs or incidents...`}
               disabled={isLoading}
               className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
             />
