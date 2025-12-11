@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { LayoutDashboard, CloudRain, MessageSquare, MapPin, Menu, Bell, HardHat, Map, Siren, ChevronDown, CheckCircle, Clock, ShieldAlert, X, Database, Terminal } from 'lucide-react';
+import { LayoutDashboard, CloudRain, MessageSquare, MapPin, Menu, Bell, HardHat, Map, Siren, ChevronDown, CheckCircle, Clock, ShieldAlert, X, Database, Terminal, BookOpen } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Simulation from './components/Simulation';
 import AgentChat from './components/AgentChat';
@@ -9,11 +9,12 @@ import FloodMap from './components/FloodMap';
 import DisasterRecovery from './components/DisasterRecovery';
 import KnowledgeBase from './components/KnowledgeBase';
 import BackendProbe from './components/BackendProbe';
+import ApiDocs from './components/ApiDocs';
 import { CITIES, INITIAL_RESERVOIRS, INITIAL_RIVERS, MOCK_ALERTS, MOCK_RECOVERY_TASKS, MOCK_RESPONSE_TEAMS } from './constants';
 import { SimulationState, Reservoir, River, Alert, CityProfile, RecoveryTask, ResponseTeam, CityDocument, AgentRole, ChatMessage } from './types';
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'map' | 'simulation' | 'agents' | 'infra' | 'recovery' | 'knowledge' | 'tests'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'map' | 'simulation' | 'agents' | 'infra' | 'recovery' | 'knowledge' | 'tests' | 'docs'>('dashboard');
   
   // Set default to Chennai
   const [selectedCityId, setSelectedCityId] = useState<string>('chennai');
@@ -287,6 +288,16 @@ const App: React.FC = () => {
             <Terminal className="w-5 h-5" />
             <span className="font-medium">System Tests</span>
           </button>
+
+          <button
+            onClick={() => setActiveTab('docs')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+              activeTab === 'docs' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'text-slate-400 hover:bg-slate-800'
+            }`}
+          >
+            <BookOpen className="w-5 h-5" />
+            <span className="font-medium">API Reference</span>
+          </button>
         </nav>
 
         <div className="p-4 border-t border-slate-800">
@@ -349,6 +360,7 @@ const App: React.FC = () => {
               {activeTab === 'infra' && 'Infrastructure Strategy'}
               {activeTab === 'knowledge' && 'City Knowledge Base'}
               {activeTab === 'tests' && 'Backend Logic Diagnostics'}
+              {activeTab === 'docs' && 'API Documentation'}
             </h2>
           </div>
           
@@ -526,6 +538,9 @@ const App: React.FC = () => {
           )}
           {activeTab === 'tests' && (
             <BackendProbe />
+          )}
+          {activeTab === 'docs' && (
+            <ApiDocs />
           )}
         </div>
       </main>

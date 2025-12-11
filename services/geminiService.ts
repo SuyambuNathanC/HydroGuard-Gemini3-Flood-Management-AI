@@ -5,31 +5,34 @@ import { AgentRole, SimulationState, Reservoir, River, InfraPlan, ChatMessage, C
 // Initialize the API client
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
+// --- PUBLIC HELPER: Construct RAG Context ---
+// This function mimics the Vector DB retrieval by formatting the active documents into a prompt context.
+export const constructRagContext = (knowledgeBase?: CityDocument[]): string => {
+  if (!knowledgeBase || knowledgeBase.length === 0) return "";
+
+  const readyDocs = knowledgeBase.filter(d => d.status === 'Ready');
+  if (readyDocs.length === 0) return "";
+
+  return `
+  \n**KNOWLEDGE BASE (RAG CONTEXT):**
+  The following official city documents have been uploaded and indexed.
+  USE this information to answer user queries accurately. Cite the document name when relevant.
+  
+  ${readyDocs.map(doc => `
+  --- SOURCE DOCUMENT: "${doc.name}" (${doc.type}) ---
+  SUMMARY: ${doc.summary}
+  KEY EXTRACTED FACTS: ${doc.keyFacts?.join('; ')}
+  RAW EXCERPT: ${doc.rawContent ? doc.rawContent.substring(0, 500).replace(/\n/g, ' ') + "..." : "N/A"}
+  ---------------------------------------------
+  `).join('\n')}
+  `;
+};
+
 const getSystemInstruction = (role: AgentRole, city?: CityProfile, knowledgeBase?: CityDocument[]): string => {
   const locationContext = city ? `ACTIVE REGION: ${city.name} (${city.level}). Pop Density: ${city.populationDensity}.` : "";
   
-  // RAG CONTEXT INJECTION (Client-Side Simulation)
-  // In a production environment with the Python backend, this would use the /query endpoint.
-  // Here we inject the summarized metadata directly for the demo.
-  let ragContext = "";
-  if (knowledgeBase && knowledgeBase.length > 0) {
-    const readyDocs = knowledgeBase.filter(d => d.status === 'Ready');
-    if (readyDocs.length > 0) {
-      ragContext = `
-      \n**KNOWLEDGE BASE (RAG CONTEXT):**
-      The following official city documents have been uploaded and indexed.
-      USE this information to answer user queries accurately. Cite the document name when relevant.
-      
-      ${readyDocs.map(doc => `
-      --- SOURCE DOCUMENT: "${doc.name}" (${doc.type}) ---
-      SUMMARY: ${doc.summary}
-      KEY EXTRACTED FACTS: ${doc.keyFacts?.join('; ')}
-      RAW EXCERPT: ${doc.rawContent ? doc.rawContent.substring(0, 500).replace(/\n/g, ' ') + "..." : "N/A"}
-      ---------------------------------------------
-      `).join('\n')}
-      `;
-    }
-  }
+  // Use the shared RAG construction logic
+  const ragContext = constructRagContext(knowledgeBase);
 
   const baseInstruction = `You are an advanced AI assistant for the 'Smart Flood & Water Security System'. ${locationContext} ${ragContext} Your output should be professional, concise, and actionable for city officials and engineers.
   
