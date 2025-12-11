@@ -15,6 +15,8 @@ interface AgentChatProps {
   simulationState: SimulationState;
   cityProfile: CityProfile;
   knowledgeBase: CityDocument[]; // Added KB Prop
+  chatHistory: Record<AgentRole, ChatMessage[]>;
+  setChatHistory: React.Dispatch<React.SetStateAction<Record<AgentRole, ChatMessage[]>>>;
 }
 
 // Comparison Data Interface
@@ -41,17 +43,17 @@ interface CriticalAlertData {
   action_items: string[];
 }
 
-const AgentChat: React.FC<AgentChatProps> = ({ reservoirs, rivers, simulationState, cityProfile, knowledgeBase }) => {
+const AgentChat: React.FC<AgentChatProps> = ({ 
+  reservoirs, 
+  rivers, 
+  simulationState, 
+  cityProfile, 
+  knowledgeBase,
+  chatHistory,
+  setChatHistory 
+}) => {
   const [activeRole, setActiveRole] = useState<AgentRole>(AgentRole.MONITOR);
   
-  // State: Separate history for each agent
-  const [chatHistory, setChatHistory] = useState<Record<AgentRole, ChatMessage[]>>({
-    [AgentRole.MONITOR]: [],
-    [AgentRole.ORCHESTRATOR]: [],
-    [AgentRole.PLANNER]: [],
-    [AgentRole.STRATEGIST]: []
-  });
-
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null); // For message actions
@@ -419,15 +421,21 @@ const AgentChat: React.FC<AgentChatProps> = ({ reservoirs, rivers, simulationSta
 
     // 2. Parse Structured Data (JSON) or Plain Text
     let content = null;
-    if (msg.text.trim().startsWith('{') && msg.text.includes('"type":')) {
+    const cleanText = msg.text.trim();
+    
+    // Check if it looks like JSON
+    if ((cleanText.startsWith('{') && cleanText.endsWith('}')) || (cleanText.startsWith('[') && cleanText.endsWith(']'))) {
       try {
-        const data = JSON.parse(msg.text);
+        const data = JSON.parse(cleanText);
         if (data.type === 'comparison_card') {
           content = renderComparisonCard(data as ComparisonData);
         } else if (data.type === 'critical_alert') {
           content = renderCriticalAlert(data as CriticalAlertData);
         } else {
-          content = <div className="text-slate-200 whitespace-pre-wrap">{msg.text}</div>;
+          // Fallback for generic JSON: Display the message/text content if available, otherwise stringify.
+          // This handles cases where the model returns JSON for standard responses.
+           const fallbackText = data.message || data.text || data.summary || JSON.stringify(data, null, 2);
+           content = <div className="text-slate-200 whitespace-pre-wrap">{fallbackText}</div>;
         }
       } catch (e) {
         // Fallback if JSON parse fails

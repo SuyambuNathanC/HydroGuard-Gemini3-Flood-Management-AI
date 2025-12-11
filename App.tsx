@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { LayoutDashboard, CloudRain, MessageSquare, MapPin, Menu, Bell, HardHat, Map, Siren, ChevronDown, CheckCircle, Clock, ShieldAlert, X, Database } from 'lucide-react';
+import { LayoutDashboard, CloudRain, MessageSquare, MapPin, Menu, Bell, HardHat, Map, Siren, ChevronDown, CheckCircle, Clock, ShieldAlert, X, Database, Terminal } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Simulation from './components/Simulation';
 import AgentChat from './components/AgentChat';
@@ -8,11 +8,12 @@ import InfraStrategist from './components/InfraStrategist';
 import FloodMap from './components/FloodMap';
 import DisasterRecovery from './components/DisasterRecovery';
 import KnowledgeBase from './components/KnowledgeBase';
+import BackendProbe from './components/BackendProbe';
 import { CITIES, INITIAL_RESERVOIRS, INITIAL_RIVERS, MOCK_ALERTS, MOCK_RECOVERY_TASKS, MOCK_RESPONSE_TEAMS } from './constants';
-import { SimulationState, Reservoir, River, Alert, CityProfile, RecoveryTask, ResponseTeam, CityDocument } from './types';
+import { SimulationState, Reservoir, River, Alert, CityProfile, RecoveryTask, ResponseTeam, CityDocument, AgentRole, ChatMessage } from './types';
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'map' | 'simulation' | 'agents' | 'infra' | 'recovery' | 'knowledge'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'map' | 'simulation' | 'agents' | 'infra' | 'recovery' | 'knowledge' | 'tests'>('dashboard');
   
   // Set default to Chennai
   const [selectedCityId, setSelectedCityId] = useState<string>('chennai');
@@ -44,6 +45,14 @@ const App: React.FC = () => {
   
   // --- KNOWLEDGE BASE STATE (RAG Context) ---
   const [documents, setDocuments] = useState<CityDocument[]>([]);
+
+  // --- CHAT STATE (Lifted for Persistence) ---
+  const [chatHistory, setChatHistory] = useState<Record<AgentRole, ChatMessage[]>>({
+    [AgentRole.MONITOR]: [],
+    [AgentRole.ORCHESTRATOR]: [],
+    [AgentRole.PLANNER]: [],
+    [AgentRole.STRATEGIST]: []
+  });
 
   // Notification Panel State
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
@@ -266,6 +275,18 @@ const App: React.FC = () => {
             <Database className="w-5 h-5" />
             <span className="font-medium">Knowledge Base</span>
           </button>
+
+          <div className="my-2 border-t border-slate-800"></div>
+
+          <button
+            onClick={() => setActiveTab('tests')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+              activeTab === 'tests' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-slate-400 hover:bg-slate-800'
+            }`}
+          >
+            <Terminal className="w-5 h-5" />
+            <span className="font-medium">System Tests</span>
+          </button>
         </nav>
 
         <div className="p-4 border-t border-slate-800">
@@ -327,6 +348,7 @@ const App: React.FC = () => {
               {activeTab === 'agents' && 'AI Command Center'}
               {activeTab === 'infra' && 'Infrastructure Strategy'}
               {activeTab === 'knowledge' && 'City Knowledge Base'}
+              {activeTab === 'tests' && 'Backend Logic Diagnostics'}
             </h2>
           </div>
           
@@ -486,6 +508,8 @@ const App: React.FC = () => {
               simulationState={activeSimulationState}
               cityProfile={currentCity}
               knowledgeBase={documents}
+              chatHistory={chatHistory}
+              setChatHistory={setChatHistory}
             />
           )}
           {activeTab === 'infra' && (
@@ -499,6 +523,9 @@ const App: React.FC = () => {
               documents={documents}
               setDocuments={setDocuments}
             />
+          )}
+          {activeTab === 'tests' && (
+            <BackendProbe />
           )}
         </div>
       </main>

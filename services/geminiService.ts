@@ -41,18 +41,35 @@ const getSystemInstruction = (role: AgentRole, city?: CityProfile, knowledgeBase
   `;
 
   const severityInstruction = `
-  CRITICAL OUTPUT RULES:
-  1. **New Alerts**: If identifying a NEW Critical/High risk event that requires immediate alerting, return a JSON object with 'type': 'critical_alert'.
-  2. **Comparisons**: If the user asks to COMPARE, return a JSON object with 'type': 'comparison_card'.
-  3. **Analysis/Explanations**: If the user asks for "Deep Analysis", "Root Cause", "Why", or "Forecast", provide a detailed **TEXT** response using markdown (lists, bolding), even if the situation is critical. Do NOT use JSON for analysis.
+  OUTPUT RULES:
+  1. **DEFAULT MODE (TEXT)**: For most queries (analysis, questions, conversational responses), use standard text/markdown. Do NOT use JSON unless specifically required below.
+  2. **CRITICAL ALERTS (JSON)**: If identifying a NEW Critical/High risk event that requires immediate alerting, return a JSON object with 'type': 'critical_alert'.
+  3. **COMPARISONS (JSON)**: If user asks to COMPARE, return a JSON object with 'type': 'comparison_card'.
   
-  JSON Schema for Critical/High Priority Alerts ONLY:
+  JSON Schema for Critical/High Priority Alerts:
   {
     "type": "critical_alert",
     "severity": "Critical" | "High",
     "title": "Short Warning Title",
     "message": "Detailed operational message...",
     "action_items": ["Action 1", "Action 2"]
+  }
+
+  JSON Schema for Comparison Card:
+  {
+    "type": "comparison_card",
+    "title": "Comparison Title",
+    "summary": "Short executive summary.",
+    "items": [
+      {
+        "metric": "Metric Name",
+        "current": "Current Value",
+        "baseline": "Historical/Baseline Value",
+        "status": "Critical" | "Warning" | "Stable",
+        "trend": "up" | "down" | "flat"
+      }
+    ],
+    "recommendation": "Strategic advice based on comparison."
   }
   `;
 
@@ -178,7 +195,8 @@ export const generateAgentResponse = async (
     });
 
     let finalText = response.text || "I processed the data but could not generate a textual response.";
-    finalText = finalText.replace(/```json\s*|\s*```/g, "").trim();
+    // Improved regex to strip code blocks but preserve content if it was text
+    finalText = finalText.replace(/^```json\s*/i, "").replace(/^```\s*/, "").replace(/\s*```$/, "").trim();
 
     return finalText;
   } catch (error) {
