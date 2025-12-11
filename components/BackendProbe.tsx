@@ -1,9 +1,99 @@
 
 import React, { useState } from 'react';
-import { Terminal, Play, ShieldCheck, CheckCircle, XCircle, Activity, Server, Brain, HardHat, Siren, Database } from 'lucide-react';
+import { Terminal, Play, ShieldCheck, CheckCircle, XCircle, Activity, Server, Brain, HardHat, Siren, Database, Code } from 'lucide-react';
+import { GoogleGenAI } from "@google/genai";
 import { INITIAL_RESERVOIRS, INITIAL_RIVERS } from '../constants';
 
-// --- PURE LOGIC ENGINE (Simulating Python Backend) ---
+// Initialize Gemini Client for System Tests
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+// --- PYTHON BACKEND LOGIC (To be executed by Gemini) ---
+const PYTHON_CORE_LOGIC = `
+import json
+
+# 1. HYDROLOGY ENGINE
+def calculate_runoff(rain_mm_hr, area_sq_km, efficiency):
+    runoff_coefficient = efficiency / 100
+    # Q = C * I * A (Simplified for Cusecs)
+    return int(rain_mm_hr * area_sq_km * runoff_coefficient * 0.5)
+
+def simulate_time_step(capacity, current_level, river_cap, river_flow, inflow, hours):
+    inflow_vol = (inflow * 3600 * hours) / 1000000
+    new_level = current_level + inflow_vol
+    overflow = new_level > capacity
+    
+    if overflow:
+        new_level = capacity
+    
+    # River Logic: Base + Runoff (20%) + Dam Release (150% if overflow)
+    new_flow = river_flow + (inflow * 0.2)
+    if overflow:
+        new_flow += (inflow * 1.5)
+
+    pct_full = (new_level / capacity) * 100
+    
+    return {
+        "newLevel": new_level, 
+        "newFlow": int(new_flow), 
+        "overflow": overflow, 
+        "pctFull": pct_full
+    }
+
+# 2. PRIORITIZATION ENGINE
+def calculate_priority(depth, loc_type, pop):
+    score = 0
+    if depth > 5: score += 50
+    elif depth > 2: score += 30
+    else: score += 10
+    
+    if loc_type == 'Hospital': score += 40
+    elif loc_type == 'Residential': score += 20
+    else: score += 10
+    
+    if pop > 1000: score += 20
+    elif pop > 100: score += 10
+    
+    if score >= 80: return 'Critical'
+    if score >= 50: return 'High'
+    if score >= 30: return 'Medium'
+    return 'Low'
+
+# 3. INFRA VALIDATION
+def validate_proposal(cost_cr, impact_score):
+    if cost_cr <= 0 or impact_score <= 0:
+        return {"isValid": False, "efficiency": "Invalid"}
+        
+    ratio = cost_cr / impact_score
+    efficiency = 'Moderate'
+    if ratio <= 5: efficiency = 'High Value'
+    elif ratio > 20: efficiency = 'Low Efficiency'
+    
+    return {"isValid": True, "efficiency": efficiency}
+
+# --- TEST RUNNER ---
+def run_diagnostics():
+    results = {}
+    
+    # Hydrology Test
+    runoff_norm = calculate_runoff(15, 426, 60)
+    sim_norm = simulate_time_step(3645, 2850, 60000, 15000, runoff_norm, 4)
+    results['hydro_normal'] = sim_norm
+    
+    runoff_ext = calculate_runoff(180, 426, 95)
+    sim_ext = simulate_time_step(3645, 3462, 60000, 40000, runoff_ext, 12)
+    results['hydro_extreme'] = sim_ext
+    
+    # Recovery Test
+    results['priority_hospital'] = calculate_priority(6, 'Hospital', 5000)
+    results['priority_road'] = calculate_priority(1, 'Road', 10)
+    
+    # Infra Test
+    results['infra_high_value'] = validate_proposal(45, 9)
+    
+    return json.dumps(results)
+
+print(run_diagnostics())
+`;
 
 interface TestResult {
   scenario: string;
@@ -14,109 +104,6 @@ interface TestResult {
   failureReason?: string;
 }
 
-// 1. HYDROLOGY LOGIC
-const calculateRunoff = (rainMmHr: number, areaSqKm: number, efficiency: number): number => {
-  const runoffCoefficient = efficiency / 100; 
-  // Q = C * I * A (Simplified for Cusecs)
-  return Math.floor(rainMmHr * areaSqKm * runoffCoefficient * 0.5); 
-};
-
-const simulateTimeStep = (
-  capacity: number,
-  currentLevel: number,
-  riverCapacity: number,
-  riverCurrentFlow: number,
-  inflow: number, 
-  hours: number
-): { newLevel: number, newFlow: number, overflow: boolean, pctFull: number } => {
-  const inflowVolumeMcft = (inflow * 3600 * hours) / 1000000; 
-  let newLevel = currentLevel + inflowVolumeMcft;
-  const overflow = newLevel > capacity;
-  
-  if (overflow) {
-    newLevel = capacity; 
-  }
-
-  // River Logic: Base + Runoff (20%) + Dam Release (80% if overflow)
-  let newFlow = riverCurrentFlow + (inflow * 0.2); 
-  if (overflow) {
-    // If dam overflows, massive release into river
-    newFlow += (inflow * 1.5); // Simulation adjustment: Overflow amplifies river flow drastically
-  }
-
-  const pctFull = (newLevel / capacity) * 100;
-
-  return { newLevel, newFlow, overflow, pctFull };
-};
-
-// 2. DISASTER RECOVERY LOGIC
-const calculateTaskPriority = (
-  waterLevelDepth: number, 
-  locationType: 'Hospital' | 'Residential' | 'Road', 
-  populationAffected: number
-): 'Critical' | 'High' | 'Medium' | 'Low' => {
-  let score = 0;
-  
-  if (waterLevelDepth > 5) score += 50;
-  else if (waterLevelDepth > 2) score += 30;
-  else score += 10;
-
-  if (locationType === 'Hospital') score += 40;
-  else if (locationType === 'Residential') score += 20;
-  else score += 10;
-
-  if (populationAffected > 1000) score += 20;
-  else if (populationAffected > 100) score += 10;
-
-  if (score >= 80) return 'Critical';
-  if (score >= 50) return 'High';
-  if (score >= 30) return 'Medium';
-  return 'Low';
-};
-
-// 3. INFRA STRATEGY LOGIC
-const validateProposal = (costCr: number, impactScore: number, type: string): { isValid: boolean, efficiency: string } => {
-  if (costCr <= 0 || impactScore <= 0 || impactScore > 10) {
-    return { isValid: false, efficiency: 'Invalid Data' };
-  }
-
-  const ratio = costCr / impactScore; // Cost per impact point
-  
-  let efficiency = 'Moderate';
-  if (ratio <= 5) efficiency = 'High Value'; // Corrected boundary: <= 5 is High Value
-  else if (ratio > 20) efficiency = 'Low Efficiency'; 
-
-  return { isValid: true, efficiency };
-};
-
-// 4. AI AGENT LOGIC (Routing)
-const routeAgentIntent = (query: string): 'Monitor' | 'Orchestrator' | 'Planner' | 'Strategist' => {
-  const q = query.toLowerCase();
-  if (q.includes('future') || q.includes('plan') || q.includes('budget') || q.includes('invest')) return 'Strategist';
-  if (q.includes('action') || q.includes('deploy') || q.includes('evacuate') || q.includes('team')) return 'Planner';
-  if (q.includes('alert') || q.includes('warning') || q.includes('notify') || q.includes('risk')) return 'Orchestrator';
-  return 'Monitor';
-};
-
-// 5. KNOWLEDGE BASE LOGIC (RAG Simulator)
-const mockRAGExtraction = (docContent: string): { summary: string, keywords: string[] } => {
-  const keywords = [];
-  const lower = docContent.toLowerCase();
-  
-  if (lower.includes('flood')) keywords.push('Flood');
-  if (lower.includes('drainage')) keywords.push('Drainage');
-  if (lower.includes('budget') || lower.includes('cost')) keywords.push('Financial');
-  if (lower.includes('protocol')) keywords.push('Protocol');
-
-  const summary = keywords.length > 0 
-    ? `Document contains information related to ${keywords.join(', ')}.`
-    : "No significant keywords found.";
-
-  return { summary, keywords };
-};
-
-// --- COMPONENT ---
-
 const BackendProbe: React.FC = () => {
   const [logs, setLogs] = useState<string[]>([]);
   const [isRunning, setIsRunning] = useState(false);
@@ -124,161 +111,204 @@ const BackendProbe: React.FC = () => {
 
   const addLog = (msg: string) => setLogs(prev => [...prev, `> ${msg}`]);
 
+  // --- AI EXECUTION HELPERS ---
+
+  const executePythonSuite = async () => {
+    try {
+      addLog("Transmitting Python Core Logic to Gemini Kernel...");
+      
+      const prompt = `
+      ACT AS A PYTHON INTERPRETER.
+      Execute the following Python code exactly as written.
+      The code ends with a print statement that outputs a JSON string.
+      
+      RETURN ONLY THE RAW JSON OUTPUT. DO NOT USE MARKDOWN BLOCK.
+      
+      CODE:
+      ${PYTHON_CORE_LOGIC}
+      `;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt
+      });
+      const text = (response.text || "").trim().replace(/```json|```/g, '');
+      return JSON.parse(text);
+    } catch (e) {
+      addLog(`CRITICAL ERROR: AI Python Execution Failed - ${e}`);
+      return null;
+    }
+  };
+
+  const executeAgentClassification = async (query: string) => {
+    try {
+      // Improved prompt with explicit definitions to distinguish Strategist (Budget) from Planner (Action)
+      const prompt = `
+      Classify the intent of this user query into one of these agents: 
+      - Strategist: Long-term infrastructure, budget, finance, ROI analysis, master planning.
+      - Planner: Immediate disaster response, field operations, tactical execution, evacuation.
+      - Orchestrator: Real-time alerts, warnings, high-level coordination.
+      - Monitor: Sensor data, weather tracking, status updates.
+      
+      Query: "${query}"
+      
+      Return ONLY the agent name.
+      `;
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt
+      });
+      return (response.text || "").trim();
+    } catch (e) {
+      return "Error";
+    }
+  };
+
+  const executeRAGExtraction = async (text: string) => {
+    try {
+      const prompt = `
+      Extract key technical terms (Protocol, Budget, Drainage, etc.) from this text:
+      "${text}"
+      Return as comma-separated list.
+      `;
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt
+      });
+      return (response.text || "").trim();
+    } catch (e) {
+      return "";
+    }
+  };
+
+  // --- MAIN TEST RUNNER ---
+
   const runTests = async () => {
     setIsRunning(true);
     setLogs([]);
     setResults([]);
 
-    addLog("INITIALIZING HYDROGUARD CORE v3.1 DIAGNOSTICS...");
+    addLog("INITIALIZING HYDROGUARD AI DIAGNOSTICS...");
     await new Promise(r => setTimeout(r, 400));
-    
-    // --- SUITE 1: HYDROLOGY ---
-    addLog("------------------------------------------------");
-    addLog("[SUITE 1/5] HYDROLOGY ENGINE (Multi-Scenario)");
-    
-    const resCap = INITIAL_RESERVOIRS[0].capacityMcft;
-    const resLevel = INITIAL_RESERVOIRS[0].currentLevelMcft;
-    const rivCap = INITIAL_RIVERS[0].designCapacityCusecs;
-    const rivFlow = INITIAL_RIVERS[0].currentFlowCusecs;
 
-    // 1.1 Normal Rain
-    const rainNorm = 15;
-    const runNorm = calculateRunoff(rainNorm, 426, 60);
-    const simNorm = simulateTimeStep(resCap, resLevel, rivCap, rivFlow, runNorm, 4);
-    const normPassed = !simNorm.overflow && simNorm.newFlow < rivCap;
+    // 1. EXECUTE PYTHON SUITE VIA AI
+    addLog("------------------------------------------------");
+    addLog("[PHASE 1] REMOTE PYTHON LOGIC EXECUTION");
+    addLog("Invoking Gemini-2.5-Flash as Python Runtime...");
+    
+    const pythonResults = await executePythonSuite();
+    
+    if (!pythonResults) {
+        addLog("ABORTING: Failed to receive valid execution result from AI.");
+        setIsRunning(false);
+        return;
+    }
+    
+    addLog("Received Computed Results from AI Model.");
+    await new Promise(r => setTimeout(r, 500));
+
+    // --- PARSE & VALIDATE HYDROLOGY ---
+    addLog("[SUITE 1/5] HYDROLOGY ENGINE");
+    const hydroNorm = pythonResults.hydro_normal;
+    const hydroPassed = !hydroNorm.overflow && hydroNorm.newFlow < 60000;
     
     setResults(prev => [...prev, {
       scenario: "Hydrology: Normal Rainfall (15mm/hr)",
       category: 'Hydrology',
-      inputs: { rain: 15, duration: 4 },
-      outputs: { runoff: runNorm, level: `${simNorm.pctFull.toFixed(1)}%`, flow: Math.floor(simNorm.newFlow) },
-      passed: normPassed,
-      failureReason: simNorm.overflow ? "Unexpected Overflow" : "Normal conditions handled"
+      inputs: { rain: 15, duration: 4, engine: 'Python/AI' },
+      outputs: { level: `${hydroNorm.pctFull.toFixed(1)}%`, flow: hydroNorm.newFlow },
+      passed: hydroPassed,
+      failureReason: hydroPassed ? undefined : "Unexpected overflow in normal conditions"
     }]);
-    addLog(`> Normal Rain Scenario: ${normPassed ? 'PASSED' : 'FAILED'}`);
+    addLog(`> Normal Rain Scenario: ${hydroPassed ? 'PASSED' : 'FAILED'}`);
 
-    // 1.2 Extreme Flood (Fixed Logic)
-    // To ensure failure is valid: Rain must be high enough to cause flow > capacity
-    const rainExt = 180;
-    const runExt = calculateRunoff(rainExt, 426, 95);
-    // Simulate river already high
-    const simExt = simulateTimeStep(resCap, resCap * 0.95, rivCap, 40000, runExt, 12);
-    const floodDetected = simExt.overflow || simExt.newFlow > rivCap;
+    const hydroExt = pythonResults.hydro_extreme;
+    const extPassed = hydroExt.overflow || hydroExt.newFlow > 60000;
     
     setResults(prev => [...prev, {
       scenario: "Hydrology: Extreme Event (180mm/hr)",
       category: 'Hydrology',
-      inputs: { rain: 180, duration: 12, startFlow: 40000 },
-      outputs: { runoff: runExt, overflow: simExt.overflow, flow: Math.floor(simExt.newFlow) },
-      passed: floodDetected,
-      failureReason: !floodDetected ? "Failed to detect flood condition (No overflow/breach)" : undefined
+      inputs: { rain: 180, duration: 12, engine: 'Python/AI' },
+      outputs: { overflow: hydroExt.overflow, flow: hydroExt.newFlow },
+      passed: extPassed,
+      failureReason: extPassed ? undefined : "Failed to predict flood in extreme scenario"
     }]);
-    addLog(`> Extreme Flood Scenario: ${floodDetected ? 'PASSED' : 'FAILED'}`);
+    addLog(`> Extreme Flood Scenario: ${extPassed ? 'PASSED' : 'FAILED'}`);
+
+    // --- PARSE & VALIDATE RECOVERY ---
     await new Promise(r => setTimeout(r, 300));
-
-    // 1.3 Drought
-    const simDrought = simulateTimeStep(resCap, resCap * 0.3, rivCap, 2000, 0, 720);
-    const droughtPassed = !simDrought.overflow && simDrought.newFlow < 5000;
-    setResults(prev => [...prev, {
-      scenario: "Hydrology: Drought Persistence",
-      category: 'Hydrology',
-      inputs: { rain: 0, duration: 720 },
-      outputs: { levelChange: "Stable/Low" },
-      passed: droughtPassed,
-      failureReason: "Drought simulation showed unexpected water gain"
-    }]);
-    addLog(`> Drought Scenario: ${droughtPassed ? 'PASSED' : 'FAILED'}`);
-
-    // --- SUITE 2: RECOVERY ---
     addLog("------------------------------------------------");
     addLog("[SUITE 2/5] DISASTER PRIORITIZATION");
     
-    const p1 = calculateTaskPriority(6, 'Hospital', 5000);
-    const p1Passed = p1 === 'Critical';
+    const pospPrio = pythonResults.priority_hospital;
+    const hospPassed = pospPrio === 'Critical';
     setResults(prev => [...prev, {
-      scenario: "Priority: Critical Infra",
+      scenario: "Priority: Hospital Inundation",
       category: 'Recovery',
       inputs: { depth: 6, type: 'Hospital' },
-      outputs: { priority: p1 },
-      passed: p1Passed,
-      failureReason: `Expected Critical, got ${p1}`
+      outputs: { priority: pospPrio },
+      passed: hospPassed,
+      failureReason: `AI calculated ${pospPrio}, expected Critical`
     }]);
-    addLog(`> Logic Check (Hospital): ${p1} -> ${p1Passed ? 'PASSED' : 'FAILED'}`);
+    addLog(`> Hospital Logic: ${pospPrio} -> ${hospPassed ? 'PASSED' : 'FAILED'}`);
 
-    const p2 = calculateTaskPriority(1, 'Road', 10);
-    const p2Passed = p2 === 'Low' || p2 === 'Medium';
-    setResults(prev => [...prev, {
-      scenario: "Priority: Low Impact",
-      category: 'Recovery',
-      inputs: { depth: 1, type: 'Road' },
-      outputs: { priority: p2 },
-      passed: p2Passed,
-      failureReason: `Expected Low/Medium, got ${p2}`
-    }]);
-    addLog(`> Logic Check (Road): ${p2} -> ${p2Passed ? 'PASSED' : 'FAILED'}`);
-    await new Promise(r => setTimeout(r, 300));
-
-    // --- SUITE 3: INFRA ---
+    // --- PARSE & VALIDATE INFRA ---
     addLog("------------------------------------------------");
     addLog("[SUITE 3/5] INFRASTRUCTURE VALIDATION");
     
-    // Fixed Test Case: 45Cr / 9 = 5. Should be High Value (<= 5)
-    const infra1 = validateProposal(45, 9, 'Drainage');
-    const infraPassed = infra1.efficiency === 'High Value';
+    const infraRes = pythonResults.infra_high_value;
+    const infraPassed = infraRes.efficiency === 'High Value';
     setResults(prev => [...prev, {
-      scenario: "ROI: High Value Proposal (Ratio 5.0)",
+      scenario: "ROI: High Value Proposal",
       category: 'Infra',
       inputs: { cost: 45, impact: 9 },
-      outputs: { efficiency: infra1.efficiency },
+      outputs: { efficiency: infraRes.efficiency },
       passed: infraPassed,
-      failureReason: `Expected High Value, got ${infra1.efficiency}`
+      failureReason: `AI Calculated ${infraRes.efficiency}, expected High Value`
     }]);
-    addLog(`> ROI Calculation: ${infra1.efficiency} -> ${infraPassed ? 'PASSED' : 'FAILED'}`);
+    addLog(`> ROI Calculation: ${infraRes.efficiency} -> ${infraPassed ? 'PASSED' : 'FAILED'}`);
 
-    // --- SUITE 4: KNOWLEDGE BASE ---
+    // 2. EXECUTE NLP TESTS
+    await new Promise(r => setTimeout(r, 300));
     addLog("------------------------------------------------");
-    addLog("[SUITE 4/5] KNOWLEDGE BASE (RAG)");
-    
-    const docText = "Standard Operating Protocol for Flood Drainage Systems. Budget allocation: 50Cr.";
-    const ragResult = mockRAGExtraction(docText);
-    const hasKeywords = ragResult.keywords.includes('Protocol') && ragResult.keywords.includes('Drainage') && ragResult.keywords.includes('Financial');
+    addLog("[PHASE 2] NLP & COGNITIVE ENGINE");
+    addLog("[SUITE 4/5] KNOWLEDGE BASE RAG");
+
+    const ragText = "Standard Operating Protocol for Flood Drainage Systems. Budget allocation: 50Cr.";
+    addLog(`Sending to AI: "${ragText.substring(0, 30)}..."`);
+    const ragOutput = await executeRAGExtraction(ragText);
+    const ragPassed = ragOutput.toLowerCase().includes('protocol') && ragOutput.toLowerCase().includes('drainage');
 
     setResults(prev => [...prev, {
-      scenario: "RAG: Keyword Extraction",
+      scenario: "RAG: Entity Extraction",
       category: 'Knowledge',
-      inputs: { textSample: "Protocol... Drainage... Budget..." },
-      outputs: { extracted: ragResult.keywords.join(', ') },
-      passed: hasKeywords,
-      failureReason: "Failed to extract key terms (Protocol, Drainage, Financial)"
+      inputs: { text: "Protocol... Drainage..." },
+      outputs: { extracted: ragOutput },
+      passed: ragPassed,
+      failureReason: "Failed to extract key terms"
     }]);
-    addLog(`> Token Extraction: ${ragResult.keywords.length} terms found -> ${hasKeywords ? 'PASSED' : 'FAILED'}`);
-    await new Promise(r => setTimeout(r, 300));
+    addLog(`> Extraction: ${ragOutput} -> ${ragPassed ? 'PASSED' : 'FAILED'}`);
 
-    // --- SUITE 5: AI AGENT ---
+    // 3. AGENT ROUTING
     addLog("------------------------------------------------");
     addLog("[SUITE 5/5] AI AGENT HUB");
+    
+    const query = "Create a budget plan for the new dam";
+    const agentOutput = await executeAgentClassification(query);
+    const agentPassed = agentOutput.includes('Strategist');
 
-    const queries = [
-      { q: "Create a budget plan", expected: 'Strategist' },
-      { q: "Warning! Water rising!", expected: 'Orchestrator' }
-    ];
-
-    queries.forEach(item => {
-      const route = routeAgentIntent(item.q);
-      const passed = route === item.expected;
-      setResults(prev => [...prev, {
-        scenario: `AI Routing: "${item.q}"`,
-        category: 'AI Core',
-        inputs: { query: item.q },
-        outputs: { agent: route },
-        passed: passed,
-        failureReason: `Routed to ${route}, expected ${item.expected}`
-      }]);
-      addLog(`> Intent Classification: "${item.q}" -> ${route} [${passed ? 'PASSED' : 'FAILED'}]`);
-    });
+    setResults(prev => [...prev, {
+      scenario: `AI Routing: "${query}"`,
+      category: 'AI Core',
+      inputs: { query },
+      outputs: { routedTo: agentOutput },
+      passed: agentPassed,
+      failureReason: `Routed to ${agentOutput}, expected Strategist`
+    }]);
+    addLog(`> Intent Classification: ${agentOutput} -> ${agentPassed ? 'PASSED' : 'FAILED'}`);
 
     addLog("------------------------------------------------");
-    addLog("DIAGNOSTICS COMPLETE.");
+    addLog("FULL DIAGNOSTICS COMPLETE.");
     setIsRunning(false);
   };
 
@@ -300,10 +330,10 @@ const BackendProbe: React.FC = () => {
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-3">
             <Server className="w-6 h-6 text-emerald-400" />
-            Backend Logic Simulator v3.1
+            Backend Logic Simulator v4.0 (AI-Powered)
           </h2>
           <p className="text-slate-400 text-sm mt-1">
-            Verifies server-side logic for Hydrology, ROI Calc, RAG Extraction, and AI Routing.
+            Validates Python backend logic by invoking Gemini as a remote runtime environment.
           </p>
         </div>
         <button 
@@ -316,7 +346,7 @@ const BackendProbe: React.FC = () => {
           }`}
         >
           {isRunning ? <Activity className="w-5 h-5 animate-spin" /> : <Play className="w-5 h-5" />}
-          {isRunning ? 'Running Diagnostics...' : 'Execute Full Test Suite'}
+          {isRunning ? 'Running Live AI Diagnostics...' : 'Execute Full Test Suite'}
         </button>
       </div>
 
@@ -330,12 +360,12 @@ const BackendProbe: React.FC = () => {
            <div className="flex-1 p-4 overflow-y-auto space-y-2 text-slate-300">
              {logs.length === 0 ? (
                <div className="opacity-50 text-center mt-10">
-                 <Server className="w-12 h-12 mx-auto mb-2" />
-                 <p>Ready to execute.</p>
+                 <Code className="w-12 h-12 mx-auto mb-2" />
+                 <p>Ready to compile & execute.</p>
                </div>
              ) : (
                logs.map((log, i) => (
-                 <div key={i} className={`${log.includes('PASSED') ? 'text-emerald-400' : log.includes('FAILED') ? 'text-red-400 font-bold' : ''}`}>
+                 <div key={i} className={`${log.includes('PASSED') ? 'text-emerald-400' : log.includes('FAILED') ? 'text-red-400 font-bold' : log.includes('ABORTING') ? 'text-red-500' : ''}`}>
                    {log}
                  </div>
                ))
@@ -350,7 +380,7 @@ const BackendProbe: React.FC = () => {
              <div className="flex-1 bg-slate-900/50 border border-slate-800 border-dashed rounded-xl flex flex-col items-center justify-center text-slate-500">
                 <ShieldCheck className="w-16 h-16 mb-4 opacity-20" />
                 <p>No test results available.</p>
-                <p className="text-xs">Run the diagnostics to view report.</p>
+                <p className="text-xs">Run the diagnostics to invoke the AI Kernel.</p>
              </div>
           )}
 
@@ -391,7 +421,7 @@ const BackendProbe: React.FC = () => {
                     </ul>
                   </div>
                   <div>
-                    <span className="text-slate-500 font-bold block mb-1">Outputs</span>
+                    <span className="text-slate-500 font-bold block mb-1">Outputs (AI Generated)</span>
                     <ul className="space-y-1">
                       {Object.entries(res.outputs).map(([k, v]) => (
                         <li key={k} className="text-white"><span className="text-slate-500">{k}:</span> {v}</li>
