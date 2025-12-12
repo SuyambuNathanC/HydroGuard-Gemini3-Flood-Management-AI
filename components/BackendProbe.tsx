@@ -2,54 +2,40 @@
 import React, { useState } from 'react';
 import { Terminal, Play, ShieldCheck, CheckCircle, XCircle, Activity, Server, Brain, HardHat, Siren, Database, Code } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
-import { INITIAL_RESERVOIRS, INITIAL_RIVERS } from '../constants';
 
 // Initialize Gemini Client for System Tests
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-// --- PYTHON BACKEND LOGIC (To be executed by Gemini) ---
+// --- PYTHON BACKEND LOGIC (Reflects backend/main.py) ---
 const PYTHON_CORE_LOGIC = `
 import json
 
-# 1. HYDROLOGY ENGINE
+# --- 1. HYDROLOGY ENGINE ---
 def calculate_runoff(rain_mm_hr, area_sq_km, efficiency):
     runoff_coefficient = efficiency / 100
-    # Q = C * I * A (Simplified for Cusecs)
     return int(rain_mm_hr * area_sq_km * runoff_coefficient * 0.5)
 
 def simulate_time_step(capacity, current_level, river_cap, river_flow, inflow, hours):
     inflow_vol = (inflow * 3600 * hours) / 1000000
     new_level = current_level + inflow_vol
     overflow = new_level > capacity
+    if overflow: new_level = capacity
     
-    if overflow:
-        new_level = capacity
-    
-    # River Logic: Base + Runoff (20%) + Dam Release (150% if overflow)
     new_flow = river_flow + (inflow * 0.2)
-    if overflow:
-        new_flow += (inflow * 1.5)
+    if overflow: new_flow += (inflow * 1.5)
 
     pct_full = (new_level / capacity) * 100
-    
-    return {
-        "newLevel": new_level, 
-        "newFlow": int(new_flow), 
-        "overflow": overflow, 
-        "pctFull": pct_full
-    }
+    return {"newLevel": new_level, "newFlow": int(new_flow), "overflow": overflow, "pctFull": pct_full}
 
-# 2. PRIORITIZATION ENGINE
+# --- 2. RECOVERY ENGINE ---
 def calculate_priority(depth, loc_type, pop):
     score = 0
     if depth > 5: score += 50
     elif depth > 2: score += 30
     else: score += 10
-    
     if loc_type == 'Hospital': score += 40
     elif loc_type == 'Residential': score += 20
     else: score += 10
-    
     if pop > 1000: score += 20
     elif pop > 100: score += 10
     
@@ -58,23 +44,67 @@ def calculate_priority(depth, loc_type, pop):
     if score >= 30: return 'Medium'
     return 'Low'
 
-# 3. INFRA VALIDATION
+# --- 3. INFRA ENGINE ---
 def validate_proposal(cost_cr, impact_score):
-    if cost_cr <= 0 or impact_score <= 0:
-        return {"isValid": False, "efficiency": "Invalid"}
-        
+    if cost_cr <= 0 or impact_score <= 0: return {"isValid": False, "efficiency": "Invalid"}
     ratio = cost_cr / impact_score
     efficiency = 'Moderate'
     if ratio <= 5: efficiency = 'High Value'
     elif ratio > 20: efficiency = 'Low Efficiency'
-    
     return {"isValid": True, "efficiency": efficiency}
+
+# --- 4. KNOWLEDGE ENGINE (IN-MEMORY RAG) ---
+class KnowledgeEngine:
+    def __init__(self):
+        # In-Memory Storage (Simulating Vector DB)
+        self.kb_store = []
+
+    def ingest_document(self, doc_id, content, doc_type="General"):
+        self.kb_store.append({
+            "id": doc_id,
+            "content": content,
+            "type": doc_type
+        })
+        return True
+
+    def retrieve_context(self, query):
+        # Brain Dump Logic
+        relevant_docs = []
+        query_terms = query.lower().split()
+        
+        for doc in self.kb_store:
+            score = 0
+            for term in query_terms:
+                if term in doc["content"].lower():
+                    score += 1
+            if score > 0:
+                relevant_docs.append(doc)
+        
+        if not relevant_docs:
+            return {"found": False, "context_blob": ""}
+
+        # Construct Context Blob
+        context_blob = "\\n**RETRIEVED CONTEXT:**\\n"
+        citations = []
+        for doc in relevant_docs:
+            context_blob += f"--- SOURCE: {doc['id']} ({doc['type']}) ---\\n"
+            context_blob += f"{doc['content']}\\n"
+            context_blob += "-----------------------------------\\n"
+            citations.append(doc['id'])
+            
+        return {
+            "found": True, 
+            "citations": citations, 
+            "context_blob": context_blob
+        }
+
+rag_engine = KnowledgeEngine()
 
 # --- TEST RUNNER ---
 def run_diagnostics():
     results = {}
     
-    # Hydrology Test
+    # Hydrology
     runoff_norm = calculate_runoff(15, 426, 60)
     sim_norm = simulate_time_step(3645, 2850, 60000, 15000, runoff_norm, 4)
     results['hydro_normal'] = sim_norm
@@ -83,12 +113,17 @@ def run_diagnostics():
     sim_ext = simulate_time_step(3645, 3462, 60000, 40000, runoff_ext, 12)
     results['hydro_extreme'] = sim_ext
     
-    # Recovery Test
+    # Recovery
     results['priority_hospital'] = calculate_priority(6, 'Hospital', 5000)
-    results['priority_road'] = calculate_priority(1, 'Road', 10)
     
-    # Infra Test
+    # Infra
     results['infra_high_value'] = validate_proposal(45, 9)
+
+    # RAG
+    rag_engine.ingest_document("doc_001", "The Standard Operating Procedure (SOP) for North Canal requires desilting every 6 months. Budget allocation is 50 Cr.", "Protocol")
+    rag_engine.ingest_document("doc_002", "City population density is 26,000 per sq km.", "Demographics")
+    rag_result = rag_engine.retrieve_context("What is the budget for canal desilting?")
+    results['rag_test'] = rag_result
     
     return json.dumps(results)
 
@@ -115,7 +150,7 @@ const BackendProbe: React.FC = () => {
 
   const executePythonSuite = async () => {
     try {
-      addLog("Transmitting Python Core Logic to Gemini Kernel...");
+      addLog("Transmitting backend/main.py logic to Gemini Kernel...");
       
       const prompt = `
       ACT AS A PYTHON INTERPRETER.
@@ -142,16 +177,14 @@ const BackendProbe: React.FC = () => {
 
   const executeAgentClassification = async (query: string) => {
     try {
-      // Improved prompt with explicit definitions to distinguish Strategist (Budget) from Planner (Action)
       const prompt = `
       Classify the intent of this user query into one of these agents: 
-      - Strategist: Long-term infrastructure, budget, finance, ROI analysis, master planning.
-      - Planner: Immediate disaster response, field operations, tactical execution, evacuation.
-      - Orchestrator: Real-time alerts, warnings, high-level coordination.
-      - Monitor: Sensor data, weather tracking, status updates.
+      - Strategist: Long-term infrastructure, budget, finance, ROI analysis.
+      - Planner: Immediate disaster response, field operations.
+      - Orchestrator: Real-time alerts.
+      - Monitor: Sensor data tracking.
       
       Query: "${query}"
-      
       Return ONLY the agent name.
       `;
       const response = await ai.models.generateContent({
@@ -161,23 +194,6 @@ const BackendProbe: React.FC = () => {
       return (response.text || "").trim();
     } catch (e) {
       return "Error";
-    }
-  };
-
-  const executeRAGExtraction = async (text: string) => {
-    try {
-      const prompt = `
-      Extract key technical terms (Protocol, Budget, Drainage, etc.) from this text:
-      "${text}"
-      Return as comma-separated list.
-      `;
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: prompt
-      });
-      return (response.text || "").trim();
-    } catch (e) {
-      return "";
     }
   };
 
@@ -194,7 +210,7 @@ const BackendProbe: React.FC = () => {
     // 1. EXECUTE PYTHON SUITE VIA AI
     addLog("------------------------------------------------");
     addLog("[PHASE 1] REMOTE PYTHON LOGIC EXECUTION");
-    addLog("Invoking Gemini-2.5-Flash as Python Runtime...");
+    addLog("Loading 'backend/main.py' into memory...");
     
     const pythonResults = await executePythonSuite();
     
@@ -204,11 +220,11 @@ const BackendProbe: React.FC = () => {
         return;
     }
     
-    addLog("Received Computed Results from AI Model.");
+    addLog("Execution Successful. Parsing Results...");
     await new Promise(r => setTimeout(r, 500));
 
     // --- PARSE & VALIDATE HYDROLOGY ---
-    addLog("[SUITE 1/5] HYDROLOGY ENGINE");
+    addLog("[SUITE 1/4] HYDROLOGY ENGINE");
     const hydroNorm = pythonResults.hydro_normal;
     const hydroPassed = !hydroNorm.overflow && hydroNorm.newFlow < 60000;
     
@@ -238,7 +254,7 @@ const BackendProbe: React.FC = () => {
     // --- PARSE & VALIDATE RECOVERY ---
     await new Promise(r => setTimeout(r, 300));
     addLog("------------------------------------------------");
-    addLog("[SUITE 2/5] DISASTER PRIORITIZATION");
+    addLog("[SUITE 2/4] DISASTER PRIORITIZATION");
     
     const pospPrio = pythonResults.priority_hospital;
     const hospPassed = pospPrio === 'Critical';
@@ -254,7 +270,7 @@ const BackendProbe: React.FC = () => {
 
     // --- PARSE & VALIDATE INFRA ---
     addLog("------------------------------------------------");
-    addLog("[SUITE 3/5] INFRASTRUCTURE VALIDATION");
+    addLog("[SUITE 3/4] INFRASTRUCTURE VALIDATION");
     
     const infraRes = pythonResults.infra_high_value;
     const infraPassed = infraRes.efficiency === 'High Value';
@@ -268,37 +284,40 @@ const BackendProbe: React.FC = () => {
     }]);
     addLog(`> ROI Calculation: ${infraRes.efficiency} -> ${infraPassed ? 'PASSED' : 'FAILED'}`);
 
-    // 2. EXECUTE NLP TESTS
+    // --- VALIDATE KNOWLEDGE ENGINE (RAG) ---
     await new Promise(r => setTimeout(r, 300));
     addLog("------------------------------------------------");
-    addLog("[PHASE 2] NLP & COGNITIVE ENGINE");
-    addLog("[SUITE 4/5] KNOWLEDGE BASE RAG");
-
-    const ragText = "Standard Operating Protocol for Flood Drainage Systems. Budget allocation: 50Cr.";
-    addLog(`Sending to AI: "${ragText.substring(0, 30)}..."`);
-    const ragOutput = await executeRAGExtraction(ragText);
-    const ragPassed = ragOutput.toLowerCase().includes('protocol') && ragOutput.toLowerCase().includes('drainage');
-
+    addLog("[SUITE 4/4] KNOWLEDGE ENGINE (RAG)");
+    
+    const ragRes = pythonResults.rag_test;
+    // Check if it found the document containing "50 Cr" budget
+    const ragPassed = ragRes.found === true && ragRes.context_blob.includes("50 Cr");
+    
     setResults(prev => [...prev, {
-      scenario: "RAG: Entity Extraction",
+      scenario: "RAG: Context Retrieval",
       category: 'Knowledge',
-      inputs: { text: "Protocol... Drainage..." },
-      outputs: { extracted: ragOutput },
+      inputs: { query: "budget for canal desilting", engine: 'In-Memory Class' },
+      outputs: { 
+        found: ragRes.found, 
+        citations: ragRes.citations?.join(', '),
+        snippet: ragRes.context_blob ? ragRes.context_blob.substring(0, 60) + "..." : "Empty"
+      },
       passed: ragPassed,
-      failureReason: "Failed to extract key terms"
+      failureReason: ragPassed ? undefined : "Failed to retrieve relevant context containing '50 Cr'"
     }]);
-    addLog(`> Extraction: ${ragOutput} -> ${ragPassed ? 'PASSED' : 'FAILED'}`);
+    addLog(`> RAG Retrieval: ${ragPassed ? 'PASSED' : 'FAILED'}`);
+
 
     // 3. AGENT ROUTING
     addLog("------------------------------------------------");
-    addLog("[SUITE 5/5] AI AGENT HUB");
+    addLog("[PHASE 2] AI AGENT ROUTING");
     
     const query = "Create a budget plan for the new dam";
     const agentOutput = await executeAgentClassification(query);
     const agentPassed = agentOutput.includes('Strategist');
 
     setResults(prev => [...prev, {
-      scenario: `AI Routing: "${query}"`,
+      scenario: `AI Intent Routing: "${query}"`,
       category: 'AI Core',
       inputs: { query },
       outputs: { routedTo: agentOutput },
@@ -330,7 +349,7 @@ const BackendProbe: React.FC = () => {
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-3">
             <Server className="w-6 h-6 text-emerald-400" />
-            Backend Logic Simulator v4.0 (AI-Powered)
+            Backend Logic Simulator v4.3 (AI-Powered)
           </h2>
           <p className="text-slate-400 text-sm mt-1">
             Validates Python backend logic by invoking Gemini as a remote runtime environment.

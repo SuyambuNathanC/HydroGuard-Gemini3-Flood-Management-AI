@@ -1,7 +1,6 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { InfraPlan, ChatMessage, CityProfile, SimulationState } from '../types';
-import { MOCK_INFRA_PLANS } from '../constants';
 import { analyzeInfraPlan, generateStrategyChatResponse, generateProactiveProposal } from '../services/geminiService';
 import { 
   HardHat, 
@@ -41,28 +40,34 @@ import {
 interface InfraStrategistProps {
   cityProfile?: CityProfile;
   simulationState?: SimulationState;
+  // Lifted Props for Persistence
+  plans: InfraPlan[];
+  setPlans: React.Dispatch<React.SetStateAction<InfraPlan[]>>;
+  drafts: InfraPlan[];
+  setDrafts: React.Dispatch<React.SetStateAction<InfraPlan[]>>;
+  messages: ChatMessage[];
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
 }
 
-const InfraStrategist: React.FC<InfraStrategistProps> = ({ cityProfile, simulationState }) => {
+const InfraStrategist: React.FC<InfraStrategistProps> = ({ 
+  cityProfile, 
+  simulationState,
+  plans,
+  setPlans,
+  drafts,
+  setDrafts,
+  messages,
+  setMessages
+}) => {
   // --- STATE ---
   const [activeView, setActiveView] = useState<'strategy' | 'portfolio'>('portfolio');
-  const [plans, setPlans] = useState<InfraPlan[]>(MOCK_INFRA_PLANS);
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
   
-  // Chat State
-  const [messages, setMessages] = useState<ChatMessage[]>([{
-    id: 'intro',
-    role: 'model',
-    text: `Hello. I am your Infrastructure Strategist. I have analyzed the current situation for ${cityProfile?.name || 'the region'} and identified key challenges.`,
-    timestamp: new Date()
-  }]);
+  // Chat Input State (Local)
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [selectedFile, setSelectedFile] = useState<{file: File, preview: string, type: string} | null>(null);
-
-  // Draft State (Saved Proposals)
-  const [drafts, setDrafts] = useState<InfraPlan[]>([]);
   
   // Interaction State
   const [compareList, setCompareList] = useState<string[]>([]);
@@ -77,6 +82,18 @@ const InfraStrategist: React.FC<InfraStrategistProps> = ({ cityProfile, simulati
   const chatFileUploadRef = useRef<HTMLInputElement>(null);
 
   // --- AUTOMATIC GENERATION EFFECT ---
+  // Ensure we have an intro message if history is empty
+  useEffect(() => {
+    if (messages.length === 0) {
+      setMessages([{
+        id: 'intro',
+        role: 'model',
+        text: `Hello. I am your Infrastructure Strategist. I have analyzed the current situation for ${cityProfile?.name || 'the region'} and identified key challenges.`,
+        timestamp: new Date()
+      }]);
+    }
+  }, [messages.length, cityProfile?.name, setMessages]);
+
   useEffect(() => {
     const triggerProactiveAnalysis = async () => {
       if (!cityProfile || !simulationState) return;
@@ -135,7 +152,6 @@ const InfraStrategist: React.FC<InfraStrategistProps> = ({ cityProfile, simulati
        triggerProactiveAnalysis();
     }
   }, [activeView, cityProfile, simulationState]); 
-  // Dependency on cityProfile/simulationState allows it to re-trigger if context changes drastically
 
   // --- DERIVED METRICS ---
   const metrics = useMemo(() => {

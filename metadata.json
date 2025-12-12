@@ -1,5 +1,5 @@
 {
   "name": "HydroGuard AI: Smart Flood Management",
-  "description": "A real-time, AI-driven platform for urban flood management, combining sensor data ingestion, simulation, and strategic infrastructure planning powered by Gemini models.",
+  "description": "Client-side Gemini AI powers this real-time hydro digital twin. Multimodal analysis for quick view flood solutions & disaster recovery.",
   "requestFramePermissions": []
 }

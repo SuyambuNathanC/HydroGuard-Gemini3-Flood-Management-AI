@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { LayoutDashboard, CloudRain, MessageSquare, MapPin, Menu, Bell, HardHat, Map, Siren, ChevronDown, CheckCircle, Clock, ShieldAlert, X, Database, Terminal, BookOpen } from 'lucide-react';
+import { LayoutDashboard, CloudRain, MessageSquare, MapPin, Menu, Bell, HardHat, Map, Siren, ChevronDown, CheckCircle, Clock, ShieldAlert, X, Database, Terminal, BookOpen, BookOpenCheck, HelpCircle, ChevronRight, Cpu } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Simulation from './components/Simulation';
 import AgentChat from './components/AgentChat';
@@ -10,11 +10,13 @@ import DisasterRecovery from './components/DisasterRecovery';
 import KnowledgeBase from './components/KnowledgeBase';
 import BackendProbe from './components/BackendProbe';
 import ApiDocs from './components/ApiDocs';
-import { CITIES, INITIAL_RESERVOIRS, INITIAL_RIVERS, MOCK_ALERTS, MOCK_RECOVERY_TASKS, MOCK_RESPONSE_TEAMS } from './constants';
-import { SimulationState, Reservoir, River, Alert, CityProfile, RecoveryTask, ResponseTeam, CityDocument, AgentRole, ChatMessage } from './types';
+import UserGuide from './components/UserGuide';
+import TechnicalArchitecture from './components/TechnicalArchitecture';
+import { CITIES, INITIAL_RESERVOIRS, INITIAL_RIVERS, MOCK_ALERTS, MOCK_RECOVERY_TASKS, MOCK_RESPONSE_TEAMS, MOCK_INFRA_PLANS } from './constants';
+import { SimulationState, Reservoir, River, Alert, CityProfile, RecoveryTask, ResponseTeam, CityDocument, AgentRole, ChatMessage, InfraPlan } from './types';
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'map' | 'simulation' | 'agents' | 'infra' | 'recovery' | 'knowledge' | 'tests' | 'docs'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'map' | 'simulation' | 'agents' | 'infra' | 'recovery' | 'knowledge' | 'tests' | 'docs' | 'guide' | 'arch'>('dashboard');
   
   // Set default to Chennai
   const [selectedCityId, setSelectedCityId] = useState<string>('chennai');
@@ -40,20 +42,29 @@ const App: React.FC = () => {
 
   const [isSimulating, setIsSimulating] = useState(false);
 
-  // --- RECOVERY STATE (Lifted for Global Access) ---
+  // --- RECOVERY STATE (Persisted Global) ---
   const [recoveryTasks, setRecoveryTasks] = useState<RecoveryTask[]>(MOCK_RECOVERY_TASKS);
   const [responseTeams, setResponseTeams] = useState<ResponseTeam[]>(MOCK_RESPONSE_TEAMS);
   
+  // --- INFRA STRATEGIST STATE (Persisted Global) ---
+  const [infraPlans, setInfraPlans] = useState<InfraPlan[]>(MOCK_INFRA_PLANS);
+  const [infraDrafts, setInfraDrafts] = useState<InfraPlan[]>([]);
+  // We initialize chat history with a placeholder, but it will be updated by the component on mount if needed
+  const [infraChatHistory, setInfraChatHistory] = useState<ChatMessage[]>([]);
+
   // --- KNOWLEDGE BASE STATE (RAG Context) ---
   const [documents, setDocuments] = useState<CityDocument[]>([]);
 
-  // --- CHAT STATE (Lifted for Persistence) ---
+  // --- AGENT CHAT STATE (Persisted Global) ---
   const [chatHistory, setChatHistory] = useState<Record<AgentRole, ChatMessage[]>>({
     [AgentRole.MONITOR]: [],
     [AgentRole.ORCHESTRATOR]: [],
     [AgentRole.PLANNER]: [],
     [AgentRole.STRATEGIST]: []
   });
+
+  // Sidebar Menu States
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
 
   // Notification Panel State
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
@@ -175,11 +186,55 @@ const App: React.FC = () => {
     setTimeout(() => {
       // Commit the DRAFT state to the ACTIVE state
       setActiveSimulationState(draftSimulation);
+      
+      // PERSISTENCE CHANGE: We DO NOT reset tasks/plans here anymore.
+      // This allows the user to see how existing tasks/plans fare in the new simulation.
+      // Reset logic has been moved to handleSystemReset.
+
       setIsSimulating(false);
       // Switch to dashboard to see results
       setActiveTab('dashboard');
     }, 800);
   };
+
+  const handleSystemReset = () => {
+    // 1. Reset Simulation Parameters
+    setDraftSimulation({
+      rainfallIntensityMmHr: 0,
+      durationHours: 12,
+      tideLevelMeters: 0.5,
+      soilSaturationPercent: 30
+    });
+    setDraftPresetId('');
+
+    // 2. Reset Active Simulation
+    setActiveSimulationState({
+      rainfallIntensityMmHr: 0,
+      durationHours: 12,
+      tideLevelMeters: 0.5,
+      soilSaturationPercent: 30
+    });
+
+    // 3. Reset Operational Memory (Tasks, Plans, Chats)
+    setRecoveryTasks(MOCK_RECOVERY_TASKS);
+    setResponseTeams(MOCK_RESPONSE_TEAMS);
+    setInfraPlans(MOCK_INFRA_PLANS);
+    setInfraDrafts([]);
+    setInfraChatHistory([]);
+    setChatHistory({
+      [AgentRole.MONITOR]: [],
+      [AgentRole.ORCHESTRATOR]: [],
+      [AgentRole.PLANNER]: [],
+      [AgentRole.STRATEGIST]: []
+    });
+  };
+
+  // Auto-expand Help menu if child is active
+  useEffect(() => {
+    if (activeTab === 'guide' || activeTab === 'docs') {
+      setIsHelpOpen(true);
+    }
+  }, [activeTab]);
 
   // Close notification on click outside
   useEffect(() => {
@@ -206,97 +261,143 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+          {/* CORE MODULES */}
+          <div className="mb-2 px-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+            Modules
+          </div>
+          
           <button
             onClick={() => setActiveTab('dashboard')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all ${
               activeTab === 'dashboard' ? 'bg-blue-600/10 text-blue-400 border border-blue-600/20' : 'text-slate-400 hover:bg-slate-800'
             }`}
           >
             <LayoutDashboard className="w-5 h-5" />
-            <span className="font-medium">Operations Console</span>
+            <span className="font-medium text-sm">Operations Console</span>
           </button>
           
           <button
             onClick={() => setActiveTab('map')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all ${
               activeTab === 'map' ? 'bg-blue-600/10 text-blue-400 border border-blue-600/20' : 'text-slate-400 hover:bg-slate-800'
             }`}
           >
             <Map className="w-5 h-5" />
-            <span className="font-medium">Flood Map</span>
+            <span className="font-medium text-sm">Flood Map</span>
           </button>
 
           <button
             onClick={() => setActiveTab('simulation')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all ${
               activeTab === 'simulation' ? 'bg-blue-600/10 text-blue-400 border border-blue-600/20' : 'text-slate-400 hover:bg-slate-800'
             }`}
           >
             <MapPin className="w-5 h-5" />
-            <span className="font-medium">Simulation Lab</span>
+            <span className="font-medium text-sm">Simulation Lab</span>
           </button>
 
           <button
             onClick={() => setActiveTab('recovery')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all ${
               activeTab === 'recovery' ? 'bg-blue-600/10 text-blue-400 border border-blue-600/20' : 'text-slate-400 hover:bg-slate-800'
             }`}
           >
             <Siren className="w-5 h-5" />
-            <span className="font-medium">Disaster Recovery</span>
+            <span className="font-medium text-sm">Disaster Recovery</span>
           </button>
 
           <button
             onClick={() => setActiveTab('agents')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all ${
               activeTab === 'agents' ? 'bg-blue-600/10 text-blue-400 border border-blue-600/20' : 'text-slate-400 hover:bg-slate-800'
             }`}
           >
             <MessageSquare className="w-5 h-5" />
-            <span className="font-medium">AI Agent Hub</span>
+            <span className="font-medium text-sm">AI Agent Hub</span>
           </button>
 
            <button
             onClick={() => setActiveTab('infra')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all ${
               activeTab === 'infra' ? 'bg-blue-600/10 text-blue-400 border border-blue-600/20' : 'text-slate-400 hover:bg-slate-800'
             }`}
           >
             <HardHat className="w-5 h-5" />
-            <span className="font-medium">Infra Strategist</span>
+            <span className="font-medium text-sm">Infra Strategist</span>
           </button>
 
           <button
             onClick={() => setActiveTab('knowledge')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all ${
               activeTab === 'knowledge' ? 'bg-blue-600/10 text-blue-400 border border-blue-600/20' : 'text-slate-400 hover:bg-slate-800'
             }`}
           >
             <Database className="w-5 h-5" />
-            <span className="font-medium">Knowledge Base</span>
+            <span className="font-medium text-sm">Knowledge Base</span>
           </button>
 
-          <div className="my-2 border-t border-slate-800"></div>
+          <div className="my-4 border-t border-slate-800"></div>
+
+          {/* SYSTEM & SUPPORT SECTION */}
+          <div className="mb-2 px-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+            System & Support
+          </div>
+
+          <button
+            onClick={() => setActiveTab('arch')}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all ${
+              activeTab === 'arch' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' : 'text-slate-400 hover:bg-slate-800'
+            }`}
+          >
+            <Cpu className="w-5 h-5" />
+            <span className="font-medium text-sm">Technical Architecture</span>
+          </button>
+
+          <div className="space-y-1 mb-1">
+            <button
+              onClick={() => setIsHelpOpen(!isHelpOpen)}
+              className={`w-full flex items-center justify-between px-4 py-2.5 rounded-lg transition-all ${
+                ['guide', 'docs'].includes(activeTab) ? 'text-white bg-slate-800' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <HelpCircle className="w-5 h-5" />
+                <span className="font-medium text-sm">Help Center</span>
+              </div>
+              {isHelpOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+            </button>
+
+            {isHelpOpen && (
+              <div className="bg-slate-900/30 rounded-lg overflow-hidden pb-1">
+                 <button
+                  onClick={() => setActiveTab('guide')}
+                  className={`w-full flex items-center gap-3 px-4 py-2 pl-12 transition-all text-sm ${
+                    activeTab === 'guide' ? 'text-indigo-400 bg-indigo-500/5 border-l-2 border-indigo-500' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50 border-l-2 border-transparent'
+                  }`}
+                >
+                  User Guide
+                </button>
+                <button
+                  onClick={() => setActiveTab('docs')}
+                  className={`w-full flex items-center gap-3 px-4 py-2 pl-12 transition-all text-sm ${
+                    activeTab === 'docs' ? 'text-blue-400 bg-blue-500/5 border-l-2 border-blue-500' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50 border-l-2 border-transparent'
+                  }`}
+                >
+                  API Reference
+                </button>
+              </div>
+            )}
+          </div>
 
           <button
             onClick={() => setActiveTab('tests')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all ${
               activeTab === 'tests' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'text-slate-400 hover:bg-slate-800'
             }`}
           >
             <Terminal className="w-5 h-5" />
-            <span className="font-medium">System Tests</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('docs')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
-              activeTab === 'docs' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'text-slate-400 hover:bg-slate-800'
-            }`}
-          >
-            <BookOpen className="w-5 h-5" />
-            <span className="font-medium">API Reference</span>
+            <span className="font-medium text-sm">System Tests</span>
           </button>
         </nav>
 
@@ -352,7 +453,7 @@ const App: React.FC = () => {
           </div>
           <div className="hidden md:block">
             <h2 className="text-lg font-semibold text-white">
-              {activeTab === 'dashboard' && 'Operations Dashboard'}
+              {activeTab === 'dashboard' && 'Operations Console'}
               {activeTab === 'map' && 'Live Flood Map'}
               {activeTab === 'simulation' && 'Flood Scenario Simulation'}
               {activeTab === 'recovery' && 'Disaster Recovery Admin'}
@@ -361,6 +462,8 @@ const App: React.FC = () => {
               {activeTab === 'knowledge' && 'City Knowledge Base'}
               {activeTab === 'tests' && 'Backend Logic Diagnostics'}
               {activeTab === 'docs' && 'API Documentation'}
+              {activeTab === 'guide' && 'User Manual & Guide'}
+              {activeTab === 'arch' && 'Technical Solution & Architecture'}
             </h2>
           </div>
           
@@ -501,6 +604,7 @@ const App: React.FC = () => {
               setActivePresetId={setDraftPresetId}
               onRunSimulation={handleRunSimulation} 
               isSimulating={isSimulating}
+              onSystemReset={handleSystemReset}
             />
           )}
           {activeTab === 'recovery' && (
@@ -522,12 +626,22 @@ const App: React.FC = () => {
               knowledgeBase={documents}
               chatHistory={chatHistory}
               setChatHistory={setChatHistory}
+              // Pass Global Context Data
+              recoveryTasks={recoveryTasks}
+              infraPlans={[...infraPlans, ...infraDrafts]}
             />
           )}
           {activeTab === 'infra' && (
             <InfraStrategist 
               cityProfile={currentCity}
               simulationState={activeSimulationState}
+              // Pass Lifted State
+              plans={infraPlans}
+              setPlans={setInfraPlans}
+              drafts={infraDrafts}
+              setDrafts={setInfraDrafts}
+              messages={infraChatHistory}
+              setMessages={setInfraChatHistory}
             />
           )}
           {activeTab === 'knowledge' && (
@@ -535,6 +649,12 @@ const App: React.FC = () => {
               documents={documents}
               setDocuments={setDocuments}
             />
+          )}
+          {activeTab === 'guide' && (
+            <UserGuide />
+          )}
+          {activeTab === 'arch' && (
+            <TechnicalArchitecture />
           )}
           {activeTab === 'tests' && (
             <BackendProbe />

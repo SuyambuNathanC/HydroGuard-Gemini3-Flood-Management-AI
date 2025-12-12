@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { AgentRole, ChatMessage, SimulationState, Reservoir, River, CityProfile, CityDocument } from '../types';
+import { AgentRole, ChatMessage, SimulationState, Reservoir, River, CityProfile, CityDocument, RecoveryTask, InfraPlan } from '../types';
 import { generateAgentResponse } from '../services/geminiService';
 import { 
   Send, Bot, User, Brain, AlertOctagon, Activity, Map, Radio, 
@@ -14,9 +14,12 @@ interface AgentChatProps {
   rivers: River[];
   simulationState: SimulationState;
   cityProfile: CityProfile;
-  knowledgeBase: CityDocument[]; // Added KB Prop
+  knowledgeBase: CityDocument[];
   chatHistory: Record<AgentRole, ChatMessage[]>;
   setChatHistory: React.Dispatch<React.SetStateAction<Record<AgentRole, ChatMessage[]>>>;
+  // New Props for Cross-Module Awareness
+  recoveryTasks?: RecoveryTask[];
+  infraPlans?: InfraPlan[];
 }
 
 // Comparison Data Interface
@@ -50,7 +53,9 @@ const AgentChat: React.FC<AgentChatProps> = ({
   cityProfile, 
   knowledgeBase,
   chatHistory,
-  setChatHistory 
+  setChatHistory,
+  recoveryTasks,
+  infraPlans
 }) => {
   const [activeRole, setActiveRole] = useState<AgentRole>(AgentRole.MONITOR);
   
@@ -178,7 +183,9 @@ const AgentChat: React.FC<AgentChatProps> = ({
         reservoirs: reservoirs,
         rivers: rivers,
         city: cityProfile, // Passed City Context
-        knowledgeBase: knowledgeBase // Passed Knowledge Base
+        knowledgeBase: knowledgeBase, // Passed Knowledge Base
+        recoveryTasks: recoveryTasks, // Passed Recovery Tasks
+        infraPlans: infraPlans // Passed Infra Plans
       },
       isComparisonRequest,
       attachmentData,

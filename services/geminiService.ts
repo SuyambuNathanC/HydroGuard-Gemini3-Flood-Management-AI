@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, GenerateContentResponse, Part } from "@google/genai";
-import { AgentRole, SimulationState, Reservoir, River, InfraPlan, ChatMessage, CityProfile, CityDocument } from '../types';
+import { AgentRole, SimulationState, Reservoir, River, InfraPlan, ChatMessage, CityProfile, CityDocument, RecoveryTask } from '../types';
 
 // Initialize the API client
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -145,7 +145,9 @@ export const generateAgentResponse = async (
     reservoirs?: Reservoir[];
     rivers?: River[];
     city?: CityProfile;
-    knowledgeBase?: CityDocument[]; // Pass KB to agents
+    knowledgeBase?: CityDocument[]; 
+    recoveryTasks?: RecoveryTask[];
+    infraPlans?: InfraPlan[];
   },
   comparisonMode: boolean = false,
   attachmentData?: { base64: string; mimeType: string },
@@ -156,12 +158,25 @@ export const generateAgentResponse = async (
 
     let contextString = "";
     if (contextData) {
+      // Map tasks to simple string for context
+      const activeTasksStr = contextData.recoveryTasks 
+        ? contextData.recoveryTasks.filter(t => t.status !== 'Resolved').map(t => `[${t.priority}] ${t.location}: ${t.description}`).join('; ')
+        : "No active tasks.";
+        
+      const infraPlansStr = contextData.infraPlans
+        ? contextData.infraPlans.map(p => `[${p.status}] ${p.title} (${p.estimatedCost})`).join('; ')
+        : "No active plans.";
+
       contextString = `
       CURRENT SYSTEM CONTEXT (Mode: ${contextData.simulation?.rainfallIntensityMmHr ? 'SIMULATION' : 'LIVE'}):
       Location: ${contextData.city?.name || 'Unknown'}
       ${contextData.simulation ? `Simulation Config: Rainfall ${contextData.simulation.rainfallIntensityMmHr}mm/hr, Tide ${contextData.simulation.tideLevelMeters}m, Soil Saturation ${contextData.simulation.soilSaturationPercent}%.` : ''}
       ${contextData.reservoirs ? `Reservoirs: ${contextData.reservoirs.map(r => `${r.name}: ${(r.currentLevelMcft/r.capacityMcft*100).toFixed(1)}% full`).join(', ')}.` : ''}
       ${contextData.rivers ? `Rivers: ${contextData.rivers.map(r => `${r.name}: ${r.status}`).join(', ')}.` : ''}
+      
+      OPERATIONAL CONTEXT (CROSS-MODULE DATA):
+      - Active Disaster Recovery Tasks: ${activeTasksStr}
+      - Infrastructure Portfolio: ${infraPlansStr}
       `;
     }
 

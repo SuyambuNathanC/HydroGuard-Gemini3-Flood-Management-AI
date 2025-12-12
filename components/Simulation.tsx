@@ -13,6 +13,7 @@ interface SimulationProps {
   // Execution
   onRunSimulation: () => void;
   isSimulating: boolean;
+  onSystemReset: () => void;
 }
 
 const PRESETS = [
@@ -50,7 +51,8 @@ const Simulation: React.FC<SimulationProps> = ({
   activePresetId, 
   setActivePresetId, 
   onRunSimulation, 
-  isSimulating 
+  isSimulating,
+  onSystemReset
 }) => {
 
   const getRiskLevel = (intensity: number, saturation: number) => {
@@ -79,14 +81,8 @@ const Simulation: React.FC<SimulationProps> = ({
   };
 
   const handleReset = () => {
-    const defaultState = {
-      rainfallIntensityMmHr: 0,
-      durationHours: 12,
-      tideLevelMeters: 0.5,
-      soilSaturationPercent: 40
-    };
-    setDraftState(defaultState);
-    setActivePresetId('');
+    // Trigger the system-wide reset from parent prop
+    onSystemReset();
   };
 
   return (
@@ -178,8 +174,8 @@ const Simulation: React.FC<SimulationProps> = ({
           <button 
             onClick={handleReset}
             disabled={isSimulating}
-            className="px-4 py-3 rounded-lg border border-slate-600 text-slate-400 hover:bg-slate-700 transition-all"
-            title="Reset to defaults"
+            className="px-4 py-3 rounded-lg border border-slate-600 text-slate-400 hover:bg-slate-700 transition-all hover:text-white"
+            title="Reset All Data (Clear Memory)"
           >
             <RotateCcw className="w-5 h-5" />
           </button>
